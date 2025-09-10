@@ -1,15 +1,17 @@
 ## imports
 import os
-from preprocessing import *
-from VAE import VAE
-import torch
-from torch.utils.data import DataLoader
-from dataset import H5Dataset
-from training import *
 import sys
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from ..utils import *
+from ..models.vanilla_vae import VAE
+from ..data_loader import H5Dataset
+from training import *
 import numpy as np
-import matplotlib.pyplot as plt
 import h5py
+import matplotlib.pyplot as plt
 from skimage import io
 
 
@@ -104,6 +106,35 @@ def main():
     print(f"Reconstruction errors: {recons_errors}")
     print(f"Anomalies detected: {anomalies}")
     print(f"Threshold: {threshold}")
+
+
+def detect_anomaly(model, data_loader, device, threshold=None):
+    """
+    Function to detect anomalies checks the reconstruction error and if its larger then sets the mask to true
+    """
+
+    model.eval()
+
+    recons_errors = []
+
+    with torch.no_grad():
+        for _, data in enumerate(data_loader):
+            data = data.to(device)
+
+            reconstruction, _, _ = model(data)
+
+            errors = F.mse_loss(reconstruction, data, reduction="none")
+            errors = errors.view(errors.size(0), -1).mean(dim=1)
+            recons_errors.extend(errors.cpu().numpy())
+
+    recons_errors = np.array(recons_errors)
+
+    if threshold is None:
+        threshold = np.percentile(recons_errors, 95)
+
+    anomalies = recons_errors > threshold
+
+    return recons_errors, anomalies, threshold
 
 
 if __name__ == "__main__":

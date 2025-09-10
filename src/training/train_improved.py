@@ -71,32 +71,3 @@ def vae_loss(reconstruction, original, mu, logvar, beta):
     kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
     total_loss = recon_loss + beta * kl_loss
     return total_loss, recon_loss, kl_loss
-
-
-def detect_anomaly(model, data_loader, device, threshold=None):
-    """
-    Function to detect anomalies checks the reconstruction error and if its larger then sets the mask to true
-    """
-
-    model.eval()
-
-    recons_errors = []
-
-    with torch.no_grad():
-        for _, data in enumerate(data_loader):
-            data = data.to(device)
-
-            reconstruction, _, _ = model(data)
-
-            errors = F.mse_loss(reconstruction, data, reduction="none")
-            errors = errors.view(errors.size(0), -1).mean(dim=1)
-            recons_errors.extend(errors.cpu().numpy())
-
-    recons_errors = np.array(recons_errors)
-
-    if threshold is None:
-        threshold = np.percentile(recons_errors, 95)
-
-    anomalies = recons_errors > threshold
-
-    return recons_errors, anomalies, threshold

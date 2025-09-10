@@ -1,16 +1,12 @@
 ## imports
-import os
-from preprocessing import *
-from VAE import VAE
 import torch
 from torch.utils.data import DataLoader
-from dataset import H5Dataset
-from training import *
-import sys
-import numpy as np
-import matplotlib.pyplot as plt
-import h5py
-from skimage import io
+from torch.optim import Adam
+import os
+import json
+from ..models.vanilla_vae import VanillaVAE
+from ..config import *
+from ..data_loader import MVTecDataset
 
 
 def main():

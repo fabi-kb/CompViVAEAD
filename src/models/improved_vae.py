@@ -1,3 +1,6 @@
+# You'll create this for your improved VAE with geometric prior
+# Can initially copy vanilla_vae.py and modify as needed
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
