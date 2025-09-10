@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+
+# Ignorne data directory:
+full_dataset/
+
+# ignore h5py dataset and state dicts
+
+*.pt2
+*.h5

@@ -1,0 +1,4 @@
+scikit-image
+matplotlib
+h5py
+tqdm
