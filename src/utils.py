@@ -1,9 +1,12 @@
 import numpy as np
 import os
-from skimage import io, transform, exposure, color
 import sys
 import h5py
 import tqdm as tqdm
+from typing import Dict, Optional
+from skimage import io, transform, exposure, color
+
+from .config import CLASS_STATS, DATA_PATH
 
 
 def transform_image(
@@ -136,6 +139,69 @@ def main():
             grayscale=grayscale,
             antialiasing=antialiasing,
         )
+
+
+# Small helper to compute per-class mean and std from HDF5 dataset
+def compute_class_stats(h5_path: Optional[str] = None, classes: Optional[list] = None, max_samples: Optional[int] = None) -> Dict[str, Dict[str, tuple]]:
+    """
+    Compute per-class channel mean/std from HDF5 layout like:
+    <class>/train/good/images -> (N,H,W,3) or (N,H,W)
+
+    Returns: CLASS_STATS dict with {class_name: {'mean': [...], 'std': [...]}}
+    Note: This function loads images in memory in chunks; it tries to be memory efficient.
+    """
+    import h5py
+    import numpy as np
+
+    if h5_path is None:
+        h5_path = DATA_PATH
+
+    stats = {}
+    with h5py.File(h5_path, "r") as f:
+        all_classes = [k for k in f.keys() if isinstance(f[k], h5py.Group)]
+        target_classes = classes if classes is not None else all_classes
+
+        for cls in target_classes:
+            try:
+                ds = f[f"{cls}/train/good/images"]
+            except Exception as e:
+                # skip classes that don't match expected
+                continue
+
+            N = ds.shape[0]
+            # optionally limit samples for speed
+            count = min(N, max_samples) if max_samples else N
+
+            # accumulate mean and var using Welford-like online formula across images
+            sum_c = None
+            sum_sq_c = None
+            n_seen = 0
+
+            for i in range(count):
+                img = ds[i] # shape (H,W,3) or (H,W)
+                if img.ndim == 2:
+                    # grayscale -> replicate to 3 channels for stats
+                    img = np.repeat(img[:, :, None], 3, axis=2)
+                # convert to float [0,1] if uint8
+                if img.dtype == np.uint8:
+                    img = img.astype(np.float32) / 255.0
+                # sum across spatial dims -> per-channel sums
+                if sum_c is None:
+                    sum_c = img.sum(axis=(0,1))
+                    sum_sq_c = (img ** 2).sum(axis=(0,1))
+                else:
+                    sum_c += img.sum(axis=(0,1))
+                    sum_sq_c += (img ** 2).sum(axis=(0,1))
+                n_seen += img.shape[0] * img.shape[1]
+
+            # per-channel mean and std
+            mean = (sum_c / n_seen).tolist()
+            var = (sum_sq_c / n_seen) - (np.array(mean) ** 2)
+            std = np.sqrt(np.maximum(var, 1e-8)).tolist()
+            stats[cls] = {"mean": mean, "std": std, "samples_used": count}
+    # populate global container
+    CLASS_STATS.update(stats)
+    return stats
 
 
 if __name__ == "__main__":
