@@ -11,7 +11,7 @@ from ..data_loader import H5Dataset
 from ..config import EDGE_ON_DENORM, EDGE_GRAYSCALE
 from ..training.losses import sobel_edges  # Import from wherever it's defined
 from ..config import EDGE_ON_DENORM, EDGE_GRAYSCALE, CLASS_STATS, NORMALIZATION
-from training import *
+#from training import *
 import numpy as np
 import h5py
 import matplotlib.pyplot as plt

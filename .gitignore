@@ -210,7 +210,7 @@ __marimo__/
 
 # Ignorne data directory:
 full_dataset/
-
+dataset/
 # ignore h5py dataset and state dicts
 
 *.pt2
