@@ -5,9 +5,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from ..utils import *
+from ..main_utils import *
 from ..models.vanilla_vae import VAE
 from ..data_loader import H5Dataset
+from ..config import EDGE_ON_DENORM, EDGE_GRAYSCALE
+from ..training.losses import sobel_edges  # Import from wherever it's defined
+from ..config import EDGE_ON_DENORM, EDGE_GRAYSCALE, CLASS_STATS, NORMALIZATION
 from training import *
 import numpy as np
 import h5py
@@ -42,6 +45,59 @@ def visualize_reconstructions(model, data_loader, device, num_samples=5):
         plt.tight_layout()
         plt.show()
 
+
+def denormalize(images, class_name=None):
+    """
+    Denormalizes images based on class statistics or fallback values.
+    
+    images: Tensor: [B, C, H, W]
+    """
+    if not EDGE_ON_DENORM:
+        return images
+        
+    denorm_images = images.clone()
+    
+    if NORMALIZATION == 'per_class' and class_name is not None and class_name in CLASS_STATS:
+        mean = torch.tensor(CLASS_STATS[class_name]['mean'], device=images.device).view(1, -1, 1, 1)
+        std = torch.tensor(CLASS_STATS[class_name]['std'], device=images.device).view(1, -1, 1, 1)
+        denorm_images = denorm_images * std + mean
+    else:
+        # imageNet fallback
+        mean = torch.tensor([0.485, 0.456, 0.406], device=images.device).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], device=images.device).view(1, 3, 1, 1)
+        denorm_images = denorm_images * std + mean
+        
+    return denorm_images
+
+def compute_edge_score(original, recon, class_name=None):
+    """
+    Computes edge-based anomaly score between original and reconstructed images.
+    
+    original and recon: [B, C, H, W]
+        
+    we return per-image edge score tensor [B]
+    """
+    if EDGE_ON_DENORM:
+        original = denormalize(original, class_name)
+        recon = denormalize(recon, class_name)
+    
+    if EDGE_GRAYSCALE and original.shape[1] == 3:
+        # RGB to grayscale weights
+        rgb_weights = torch.tensor([0.299, 0.587, 0.114], device=original.device).view(1, 3, 1, 1)
+        original_gray = torch.sum(original * rgb_weights, dim=1, keepdim=True)
+        recon_gray = torch.sum(recon * rgb_weights, dim=1, keepdim=True)
+    else:
+        original_gray = original
+        recon_gray = recon
+    
+    # edge maps
+    edges_original = sobel_edges(original_gray)
+    edges_recon = sobel_edges(recon_gray)
+    # per-image MSE
+    edge_diff = F.mse_loss(edges_recon, edges_original, reduction='none')
+    edge_score = edge_diff.view(edge_diff.size(0), -1).mean(dim=1)
+    
+    return edge_score
 
 def main():
 
@@ -108,33 +164,73 @@ def main():
     print(f"Threshold: {threshold}")
 
 
-def detect_anomaly(model, data_loader, device, threshold=None):
+def detect_anomaly(model, data_loader, device, class_name=None, threshold=None):
     """
-    Function to detect anomalies checks the reconstruction error and if its larger then sets the mask to true
+    Function to detect anomalies using both pixel-based and edge-based metrics.
     """
 
     model.eval()
-
-    recons_errors = []
-
+    
+    pixel_scores = []
+    edge_scores = []
+    all_data = []
+    all_recon = []
+    
     with torch.no_grad():
         for _, data in enumerate(data_loader):
             data = data.to(device)
-
+            
             reconstruction, _, _ = model(data)
-
-            errors = F.mse_loss(reconstruction, data, reduction="none")
-            errors = errors.view(errors.size(0), -1).mean(dim=1)
-            recons_errors.extend(errors.cpu().numpy())
-
-    recons_errors = np.array(recons_errors)
-
+            
+            all_data.append(data.cpu())
+            all_recon.append(reconstruction.cpu())
+            
+            # MAE
+            pixel_error = torch.abs(reconstruction - data).view(data.size(0), -1).mean(dim=1)
+            pixel_scores.extend(pixel_error.cpu().numpy())
+            
+            edge_error = compute_edge_score(data, reconstruction, class_name)
+            edge_scores.extend(edge_error.cpu().numpy())
+    
+    pixel_scores = np.array(pixel_scores)
+    edge_scores = np.array(edge_scores)
+    
+    # concatenate
+    all_data = torch.cat(all_data, dim=0)
+    all_recon = torch.cat(all_recon, dim=0)
+    
     if threshold is None:
-        threshold = np.percentile(recons_errors, 95)
+        threshold = np.percentile(pixel_scores, 95)
+    
+    # flaging anomalies
+    pixel_anomalies = pixel_scores > threshold
+    edge_anomalies = edge_scores > np.percentile(edge_scores, 95)
+    
+    return {
+        'pixel_scores': pixel_scores,
+        'edge_scores': edge_scores,
+        'threshold': threshold,
+        'pixel_anomalies': pixel_anomalies,
+        'edge_anomalies': edge_anomalies,
+        'data': all_data[:100], # limit because of visualization 
+        'recon': all_recon[:100]
+    }
 
-    anomalies = recons_errors > threshold
-
-    return recons_errors, anomalies, threshold
+def test_edge_computation():
+    """Simple test to verify edge computation is working correctly."""
+    # random test images
+    test_image = torch.rand(2, 3, 64, 64)
+    test_recon = torch.rand(2, 3, 64, 64)
+    
+    edge_score = compute_edge_score(test_image, test_recon)
+    
+    print(f"Edge score shape: {edge_score.shape}")
+    print(f"Edge score values: {edge_score}")
+    
+    assert not torch.isnan(edge_score).any(), "Edge scores has NaN values"
+    assert edge_score.shape[0] == test_image.shape[0], "Wrong number of scores returned"
+    
+    print("edge computation test passed")
 
 
 if __name__ == "__main__":

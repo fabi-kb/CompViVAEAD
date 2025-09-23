@@ -1,55 +1,297 @@
 ## imports
-import torch
-from torch.utils.data import DataLoader
-from torch.optim import Adam
 import os
+import sys
 import json
-from ..models.vanilla_vae import VanillaVAE
-from ..config import *
-from ..data_loader import MVTecDataset
+import torch
+import torch.nn as nn
+import datetime
+import argparse
+import numpy as np
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+
+from torch.utils.data import DataLoader, random_split, Subset
+from torch.optim import Adam
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from src.models.vanilla_vae import VAE
+from src.config import *
+from src.data_loader import H5Dataset, MVTecDataset
+from src.main_utils import build_parser
+from src.training.losses import vae_loss
+# from src.evaluation.visualization import visualize_reconstructions
+
+def train_vae(
+    model, train_loader, val_loader, epochs=50, lr=1e-3, beta=1.0, device="cpu",
+    experiment_dir=None, save_every=5
+):
+    """
+    implements the training loop for the VAE, uses the adam optimizer
+
+    model: VAE
+    train_loader: dataLoader for training data
+    val_loader: dataLoader for validation data
+    
+    epochs
+    lr: learning rate
+    beta: weight for KL divergence term
+
+    device: device to train on
+    experiment_dir: directory to save results
+    save_every: save checkpoint every N epochs
+    """
+    model.to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min", patience=5)
+
+    metrics = {
+        "epochs": [],
+        "train_loss": [],
+        "val_loss": [],
+        "train_recon_loss": [],
+        "train_kl_loss": [],
+        "val_recon_loss": [],
+        "val_kl_loss": []
+    }
+
+    best_val_loss = float('inf')
+    
+    # models directory
+    if experiment_dir:
+        models_dir = os.path.join(experiment_dir, "models")
+        figs_dir = os.path.join(experiment_dir, "figs")
+        os.makedirs(models_dir, exist_ok=True)
+        os.makedirs(figs_dir, exist_ok=True)
+
+    for epoch in range(epochs):
+        model.train()
+        train_loss = 0
+        train_recon_loss = 0
+        train_kl_loss = 0
+        
+        # progress bar
+        for idx, data in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")):
+            data = data.to(device)
+
+            optimizer.zero_grad()
+
+            reconstruction, mu, logvar = model(data)
+
+            loss_dict = vae_loss(reconstruction, data, mu, logvar, beta)
+            loss = loss_dict['loss']
+            recon_loss = loss_dict['recon_loss']
+            kl_loss = loss_dict['kl_loss']
+
+            loss.backward()
+            optimizer.step()
+            
+            train_loss += loss.item()
+            train_recon_loss += recon_loss.item()
+            train_kl_loss += kl_loss.item()
+
+        # average loss per batch
+        train_loss /= len(train_loader)
+        train_recon_loss /= len(train_loader)
+        train_kl_loss /= len(train_loader)
+
+        # validation
+        model.eval()
+        val_loss = 0
+        val_recon_loss = 0
+        val_kl_loss = 0
+        
+        with torch.no_grad():
+            for _, data in enumerate(tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Val]")):
+                data = data.to(device)
+
+                reconstruction, mu, logvar = model(data)
+
+                loss_dict = vae_loss(reconstruction, data, mu, logvar, beta)
+                val_loss += loss_dict['loss'].item()
+                val_recon_loss += loss_dict['recon_loss'].item()
+                val_kl_loss += loss_dict['kl_loss'].item()
+                
+                # # Save sample for visualization
+                # if idx == 0 and epoch % save_every == 0 and experiment_dir:
+                #     sample_data = data[:min(8, len(data))]
+                #     sample_recon = reconstruction[:min(8, len(reconstruction))]
+                    
+                #     fig = visualize_reconstructions(sample_data, sample_recon)
+                #     fig.savefig(os.path.join(figs_dir, f"recon_epoch{epoch+1}.png"))
+                #     plt.close(fig)
+
+        # average validation loss
+        val_loss /= len(val_loader)
+        val_recon_loss /= len(val_loader)
+        val_kl_loss /= len(val_loader)
+
+        scheduler.step(val_loss)
+        
+        metrics["epochs"].append(epoch+1)
+        metrics["train_loss"].append(train_loss)
+        metrics["val_loss"].append(val_loss)
+        metrics["train_recon_loss"].append(train_recon_loss)
+        metrics["train_kl_loss"].append(train_kl_loss)
+        metrics["val_recon_loss"].append(val_recon_loss)
+        metrics["val_kl_loss"].append(val_kl_loss)
+
+        print(
+            f"Epoch {epoch+1}/{epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}\n"
+            f"Train Recon: {train_recon_loss:.4f}, Train KL: {train_kl_loss:.4f}\n"
+            f"Val Recon: {val_recon_loss:.4f}, Val KL: {val_kl_loss:.4f}"
+        )
+        
+        if experiment_dir:
+            with open(os.path.join(experiment_dir, "metrics.json"), "w") as f:
+                json.dump(metrics, f, indent=4)
+        
+        # checkpoint
+        if experiment_dir and ((epoch+1) % save_every == 0 or epoch+1 == epochs):
+            checkpoint_path = os.path.join(models_dir, f"model_epoch{epoch+1}.pt")
+            torch.save({
+                'epoch': epoch+1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'metrics': metrics
+            }, checkpoint_path)
+            print(f"Saved checkpoint to {checkpoint_path}")
+            
+        # best model
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            if experiment_dir:
+                best_model_path = os.path.join(models_dir, "best_model.pt")
+                torch.save({
+                    'epoch': epoch+1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'metrics': metrics,
+                    'val_loss': val_loss
+                }, best_model_path)
+                print(f"Saved best model with val_loss: {val_loss:.4f}")
+    
+    return model, metrics
 
 
-def main():
+def main(class_name, epochs, batch_size, seed, beta, run_id, data_subset=1.0, val_split=0.1, **kwargs):
+    """
+    Args:
+    class_name: MVTec class name
+    epochs
+    batch_size
+    seed: random seed
+    beta: weight for KL divergence term
+    run_id: experiment id
+    
+    data_subset: fraction of training data to use (0-1)
+    val_split: fraction of training data to use for validation (0-1)
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # add workers
-    num_workers = 8
-
-    dataset_name = "mvtec_dataset.h5"
-
+    # experiment directory
+    if not run_id:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_id = f"{class_name}_baseline_beta{beta}_seed{seed}_{timestamp}"
+    
+    experiment_dir = os.path.join("experiments", class_name, run_id)
+    os.makedirs(experiment_dir, exist_ok=True)
+    
+    config = {
+        'class_name': class_name,
+        'epochs': epochs,
+        'batch_size': batch_size,
+        'seed': seed,
+        'beta': beta,
+        'run_id': run_id,
+        'data_subset': data_subset,
+        'val_split': val_split
+    }
+    
+    with open(os.path.join(experiment_dir, "config.json"), "w") as f:
+        json.dump(config, f, indent=4)
+    
+    # looading dataset
     input_channels = 3
     latent_dim = 1024
     hidden_layers = [32, 64, 128, 256]
+    num_workers = 4
 
-    dataset = H5Dataset(dataset_name, "bottle", "train")
-    dataloader = DataLoader(
-        dataset, batch_size=32, shuffle=True, num_workers=num_workers
+    print(f"Loading {class_name} dataset...")
+    train_dataset = MVTecDataset(class_name=class_name, split="train")
+    
+    # applying data subset if specified
+    if data_subset < 1.0:
+        subset_size = int(len(train_dataset) * data_subset)
+        indices = torch.randperm(len(train_dataset))[:subset_size]
+        
+        train_dataset = Subset(train_dataset, indices)
+    
+    # split
+    dataset_size = len(train_dataset)
+    val_size = int(dataset_size * val_split)
+    train_size = dataset_size - val_size
+    
+    train_subset, val_subset = random_split(
+        train_dataset,
+        [train_size, val_size],
+        generator=torch.Generator().manual_seed(seed)
+    )
+    
+    print(f"Training samples: {train_size}, Validation samples: {val_size}")
+    
+    train_loader = DataLoader(
+        train_subset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True
+    )
+    
+    val_loader = DataLoader(
+        val_subset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True
     )
 
     model = VAE(
         input_channels=input_channels,
         latent_dim=latent_dim,
         hidden_layers=hidden_layers,
-        image_size=128,
+        image_size=IMAGE_SIZE,
     ).to(device)
 
-    print(model)
+    print(f"Created VAE model with {sum(p.numel() for p in model.parameters())} parameters")
 
-    train_vae(
-        model, dataloader, dataloader, epochs=10, lr=1e-3, beta=1.0, device=device
+    # training
+    model, metrics = train_vae(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        epochs=epochs,
+        lr=LEARNING_RATE,
+        beta=beta,
+        device=device,
+        experiment_dir=experiment_dir,
+        save_every=5
     )
 
-    print("Training complete.")
-
-    # save model
-    torch.save(model.state_dict(), "bottle_large.pt2")
-
-    # anomaly_dataset = H5Dataset(dataset_name, "bottle", "broken_large")
-
-    # anomaly_dataloader = DataLoader(anomaly_dataset, batch_size=32, shuffle=False)
+    print(f"Training complete. Results saved to {experiment_dir}")
 
 
 if __name__ == "__main__":
+    # If build_parser doesn't have all required args, we can extend it
+    # But let's assume it's complete for now
+    parser = build_parser()
+    args = parser.parse_args()
 
-    main()
+    main(**vars(args))

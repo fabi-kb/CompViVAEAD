@@ -2,12 +2,17 @@
 #  description of funcs are refined/added
 
 import os
+import sys
 import json
 import time
 import datetime
 import argparse
 from typing import Dict, List, Optional, Tuple, Any
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+
+from src.main_utils import build_parser
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -16,11 +21,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from ..models.improved_vae import ImprovedVAE
-from ..data_loader import MVTecDataset
-from .losses import vae_geo_loss, sobel_edges
-from ..evaluation.visualization import visualize_reconstructions, visualize_edge_maps
-from ..config import (
+# from ..models.improved_vae import ImprovedVAE
+# from ..data_loader import MVTecDataset
+# from .losses import vae_geo_loss, sobel_edges
+from src.models.improved_vae import ImprovedVAE
+from src.data_loader import MVTecDataset
+from src.training.losses import vae_geo_loss, sobel_edges
+# from ..evaluation.visualization import visualize_reconstructions, visualize_edge_maps
+from src.config import (
     RANDOM_SEED, DEVICE, BATCH_SIZE, NUM_WORKERS, PIN_MEMORY,
     LEARNING_RATE, BETAS, WEIGHT_DECAY, OPTIMIZER,
     EPOCHS, BETA, LAMBDA_GEO,
@@ -103,7 +111,7 @@ def train_model(
         }
         
         for batch_idx, batch in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} [Train]")):
-            images = batch["image"].to(device)
+            images = batch.to(device)
             
             optimizer.zero_grad()
             recon_images, mu, logvar = model(images)
@@ -133,7 +141,7 @@ def train_model(
         
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} [Val]")):
-                images = batch["image"].to(device)
+                images = batch.to(device)
                 
                 recon_images, mu, logvar = model(images)
                 
@@ -197,29 +205,29 @@ def train_model(
         else:
             patience_counter += 1
         
-        # generateing visualizations
-        if (epoch + 1) % EVAL_EVERY == 0 or epoch == num_epochs - 1:
-            with torch.no_grad():
-                sample_batch = next(iter(val_loader))
-                sample_images = sample_batch["image"].to(device)
-                sample_recon, _, _ = model(sample_images)
+        # # generateing visualizations
+        # if (epoch + 1) % EVAL_EVERY == 0 or epoch == num_epochs - 1:
+        #     with torch.no_grad():
+        #         sample_batch = next(iter(val_loader))
+        #         sample_images = sample_batch.to(device)
+        #         sample_recon, _, _ = model(sample_images)
                 
-                # reconstructions
-                fig_recon = visualize_reconstructions(
-                    sample_images, sample_recon, 
-                    num_images=min(8, len(sample_images))
-                )
-                fig_recon.savefig(os.path.join(figs_dir, f"recon_epoch{epoch+1}.png"))
-                plt.close(fig_recon)
+        #         # reconstructions
+        #         fig_recon = visualize_reconstructions(
+        #             sample_images, sample_recon, 
+        #             num_images=min(8, len(sample_images))
+        #         )
+        #         fig_recon.savefig(os.path.join(figs_dir, f"recon_epoch{epoch+1}.png"))
+        #         plt.close(fig_recon)
                 
-                # edge maps
-                fig_edges = visualize_edge_maps(
-                    sample_images, sample_recon, 
-                    edge_func=sobel_edges,
-                    num_images=min(4, len(sample_images))
-                )
-                fig_edges.savefig(os.path.join(figs_dir, f"edges_epoch{epoch+1}.png"))
-                plt.close(fig_edges)
+        #         # edge maps
+        #         fig_edges = visualize_edge_maps(
+        #             sample_images, sample_recon, 
+        #             edge_func=sobel_edges,
+        #             num_images=min(4, len(sample_images))
+        #         )
+        #         fig_edges.savefig(os.path.join(figs_dir, f"edges_epoch{epoch+1}.png"))
+        #         plt.close(fig_edges)
         
         with open(os.path.join(metrics_dir, METRICS_JSON), 'w') as f:
             json.dump(history, f, indent=4)
@@ -260,21 +268,32 @@ def get_scheduler(
         return None
         
     if scheduler_type == "ReduceLROnPlateau":
-        return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **params)
-    elif scheduler_type == "CosineAnnealingLR":
-        return torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=params.get("T_max", 10), eta_min=params.get("eta_min", 0)
-        )
-    elif scheduler_type == "StepLR":
-        return torch.optim.lr_scheduler.StepLR(
-            optimizer, step_size=params.get("step_size", 10), gamma=params.get("gamma", 0.1)
-        )
+        # Filter out unsupported parameters
+        valid_params = {}
+        # List of valid parameters for ReduceLROnPlateau
+        valid_keys = ['mode', 'factor', 'patience', 'threshold', 
+                     'threshold_mode', 'cooldown', 'min_lr', 'eps']
+        for key in valid_keys:
+            if key in params:
+                valid_params[key] = params[key]
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **valid_params)
+    # elif scheduler_type == "CosineAnnealingLR":
+    #     return torch.optim.lr_scheduler.CosineAnnealingLR(
+    #         optimizer, T_max=params.get("T_max", 10), eta_min=params.get("eta_min", 0)
+    #     )
+    # elif scheduler_type == "StepLR":
+    #     return torch.optim.lr_scheduler.StepLR(
+    #         optimizer, step_size=params.get("step_size", 10), gamma=params.get("gamma", 0.1)
+    #     )
     else:
         raise ValueError(f"Unsupported scheduler: {scheduler_type}")
 
 
 def main(
     class_name: str,
+    epochs: int = EPOCHS,
+    batch_size: int = BATCH_SIZE,
+    seed: int = RANDOM_SEED,
     data_subset: float = 1.0,
     val_split: float = 0.1,
     beta: float = BETA,
@@ -283,37 +302,40 @@ def main(
     resume_from: Optional[str] = None
 ):
     """
-    Main training function.
-    
-    Args:
-        class_name: MVTec class to train on
-        data_subset: Fraction of training data to use
-        val_split: Validation split ratio
-        beta: Weight for KL divergence term
-        lambda_geo: Weight for geometric prior term
-        run_id: Custom run identifier
-        resume_from: Checkpoint path to resume from
+    class_name: MVTec class to train on
+    epochs: Number of training epochs
+    batch_size: Batch size for training
+    seed: Random seed
+    data_subset: Fraction of training data to use
+    val_split: Validation split ratio
+    beta: Weight for KL divergence term
+    lambda_geo: Weight for geometric prior term
+    run_id: Custom run identifier
+    resume_from: Checkpoint path to resume from
     """
-    torch.manual_seed(RANDOM_SEED)
-    np.random.seed(RANDOM_SEED)
+    print(f"EXPERIMENT_ROOT = {EXPERIMENT_ROOT}")
+    print(f"Will save to: {os.path.join(EXPERIMENT_ROOT, class_name, run_id)}")
+    print(f"Working directory: {os.getcwd()}")
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
     
     # experiment directory
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     if run_id is None:
-        run_id = f"{class_name}_beta{beta}_geo{lambda_geo}_{timestamp}"
-    experiment_dir = os.path.join(EXPERIMENT_ROOT, run_id)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_id = f"{class_name}_improved_lambda{lambda_geo}_beta{beta}_seed{seed}"
+    experiment_dir = os.path.join(EXPERIMENT_ROOT, class_name, run_id)
     os.makedirs(experiment_dir, exist_ok=True)
     
     config = {
         'class_name': class_name,
+        'epochs': epochs,
+        'batch_size': batch_size,
+        'seed': seed,
         'data_subset': data_subset,
         'val_split': val_split,
         'beta': beta,
-        'lambda_geo': lambda_geo,
-        'random_seed': RANDOM_SEED,
-        'batch_size': BATCH_SIZE,
-        'learning_rate': LEARNING_RATE,
-        'epochs': EPOCHS
+        'lambda_geo': lambda_geo
     }
     with open(os.path.join(experiment_dir, 'config.json'), 'w') as f:
         json.dump(config, f, indent=4)
@@ -336,19 +358,19 @@ def main(
     )
     
     train_loader = DataLoader(
-        train_subset, batch_size=BATCH_SIZE, shuffle=True,
+        train_subset, batch_size=batch_size, shuffle=True,
         num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY
     )
     val_loader = DataLoader(
-        val_subset, batch_size=BATCH_SIZE, shuffle=False,
+        val_subset, batch_size=batch_size, shuffle=False,
         num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY
     )
-    
+
     print(f"Train samples: {len(train_subset)}, Validation samples: {len(val_subset)}")
     
     # gett a sample to see input channels
     sample_batch = next(iter(train_loader))
-    input_channels = sample_batch["image"].shape[1]# [B, C, H, W]
+    input_channels = sample_batch.shape[1]# [B, C, H, W]
     
     model = ImprovedVAE(input_channels=input_channels).to(DEVICE)
     print(f"Created ImprovedVAE model with {input_channels} input channels")
@@ -395,21 +417,7 @@ def main(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--class_name", type=str, required=True,
-                        help="MVTec class to train on")
-    parser.add_argument("--data_subset", type=float, default=1.0,
-                        help="Fraction of training data to use")
-    parser.add_argument("--val_split", type=float, default=0.1,
-                        help="Validation split ratio")
-    parser.add_argument("--beta", type=float, default=BETA,
-                        help="Weight for KL divergence term")
-    parser.add_argument("--lambda_geo", type=float, default=LAMBDA_GEO,
-                        help="Weight for geometric prior term")
-    parser.add_argument("--run_id", type=str, default=None,
-                        help="Custom run identifier")
-    parser.add_argument("--resume_from", type=str, default=None,
-                        help="Checkpoint path to resume from")
-    
+    parser = build_parser()
     args = parser.parse_args()
+    
     main(**vars(args))
