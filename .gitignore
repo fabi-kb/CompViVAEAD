@@ -216,5 +216,6 @@ full_dataset/
 *.pt2
 *.h5
 
-# ignore logs and experiments
+# ignore logs and experiments, generated visual data
 experiments/
+data/

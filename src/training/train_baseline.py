@@ -24,7 +24,7 @@ from src.training.losses import vae_loss
 
 def train_vae(
     model, train_loader, val_loader, epochs=50, lr=1e-3, beta=1.0, device="cpu",
-    experiment_dir=None, save_every=5
+    experiment_dir=None, save_every=5, beta_warmup_epochs=15, beta_start=0.01
 ):
     """
     implements the training loop for the VAE, uses the adam optimizer
@@ -66,6 +66,15 @@ def train_vae(
         os.makedirs(figs_dir, exist_ok=True)
 
     for epoch in range(epochs):
+        # beta annealing experiment
+        # Calculate current beta value using linear annealing
+        if epoch < beta_warmup_epochs:
+            current_beta = beta_start + (beta - beta_start) * (epoch / beta_warmup_epochs)
+        else:
+            current_beta = beta
+
+        print(f"Epoch {epoch+1}/{epochs}, Current Beta: {current_beta:.4f}")
+
         model.train()
         train_loss = 0
         train_recon_loss = 0
@@ -79,7 +88,7 @@ def train_vae(
 
             reconstruction, mu, logvar = model(data)
 
-            loss_dict = vae_loss(reconstruction, data, mu, logvar, beta)
+            loss_dict = vae_loss(reconstruction, data, mu, logvar, current_beta)
             loss = loss_dict['loss']
             recon_loss = loss_dict['recon_loss']
             kl_loss = loss_dict['kl_loss']
@@ -108,7 +117,7 @@ def train_vae(
 
                 reconstruction, mu, logvar = model(data)
 
-                loss_dict = vae_loss(reconstruction, data, mu, logvar, beta)
+                loss_dict = vae_loss(reconstruction, data, mu, logvar, current_beta)
                 val_loss += loss_dict['loss'].item()
                 val_recon_loss += loss_dict['recon_loss'].item()
                 val_kl_loss += loss_dict['kl_loss'].item()
@@ -155,7 +164,8 @@ def train_vae(
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
-                'metrics': metrics
+                'metrics': metrics,
+                'current_beta': current_beta
             }, checkpoint_path)
             print(f"Saved checkpoint to {checkpoint_path}")
             
@@ -170,7 +180,8 @@ def train_vae(
                     'optimizer_state_dict': optimizer.state_dict(),
                     'scheduler_state_dict': scheduler.state_dict(),
                     'metrics': metrics,
-                    'val_loss': val_loss
+                    'val_loss': val_loss,
+                    'current_beta': current_beta
                 }, best_model_path)
                 print(f"Saved best model with val_loss: {val_loss:.4f}")
     
