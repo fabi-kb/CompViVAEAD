@@ -1,3 +1,6 @@
+# example script command to run:
+# python src/training/train_baseline.py --class_name metal_nut --epochs 50 --batch_size 32 --seed 42 --beta 0.05 --run_id metal_nut_baseline_beta0.05_seed42
+
 ## imports
 import os
 import sys
@@ -204,6 +207,7 @@ def main(
     batch_size,
     seed,
     beta,
+    learning_rate,
     run_id,
     data_subset=1.0,
     val_split=0.1,
@@ -232,7 +236,7 @@ def main(
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         run_id = f"{class_name}_baseline_beta{beta}_seed{seed}_{timestamp}"
 
-    experiment_dir = os.path.join("experiments", class_name, run_id)
+    experiment_dir = os.path.join(EXPERIMENT_ROOT, class_name, "baseline", run_id)
     os.makedirs(experiment_dir, exist_ok=True)
 
     config = {
@@ -251,7 +255,7 @@ def main(
 
     # loading dataset
     input_channels = 3
-    latent_dim = 128
+    latent_dim = 64
     hidden_layers = [64, 128, 256, 512]
 
     num_workers = min(8, os.cpu_count() // 2)
@@ -315,7 +319,7 @@ def main(
         train_loader=train_loader,
         val_loader=val_loader,
         epochs=epochs,
-        lr=LEARNING_RATE,
+        lr=learning_rate,
         beta=beta,
         device=device,
         experiment_dir=experiment_dir,

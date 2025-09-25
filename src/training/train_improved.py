@@ -1,5 +1,5 @@
-#  added parser fully with the help of an llm
-#  description of funcs are refined/added
+# example script command to run:
+# python src/training/train_improved.py --class_name metal_nut --epochs 50 --batch_size 64 --seed 42 --lambda_geo 0.1 --beta 0.05 --run_id metal_nut_improved_lambda0.1_beta0.05_seed42
 
 import os
 import sys
@@ -298,6 +298,7 @@ def main(
     val_split: float = 0.1,
     beta: float = BETA,
     lambda_geo: float = LAMBDA_GEO,
+    learning_rate: float = LEARNING_RATE,
     run_id: Optional[str] = None,
     resume_from: Optional[str] = None
 ):
@@ -314,7 +315,7 @@ def main(
     resume_from: Checkpoint path to resume from
     """
     print(f"EXPERIMENT_ROOT = {EXPERIMENT_ROOT}")
-    print(f"Will save to: {os.path.join(EXPERIMENT_ROOT, class_name, run_id)}")
+    print(f"Will save to: {os.path.join(EXPERIMENT_ROOT, class_name, 'improved', run_id)}")
     print(f"Working directory: {os.getcwd()}")
 
     torch.manual_seed(seed)
@@ -324,7 +325,7 @@ def main(
     if run_id is None:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         run_id = f"{class_name}_improved_lambda{lambda_geo}_beta{beta}_seed{seed}"
-    experiment_dir = os.path.join(EXPERIMENT_ROOT, class_name, run_id)
+    experiment_dir = os.path.join(EXPERIMENT_ROOT, class_name, "improved", run_id)
     os.makedirs(experiment_dir, exist_ok=True)
     
     config = {
@@ -388,7 +389,7 @@ def main(
         scheduler=scheduler,
         beta=beta,
         lambda_geo=lambda_geo,
-        num_epochs=EPOCHS,
+        num_epochs=epochs,
         device=DEVICE,
         experiment_dir=experiment_dir,
         resume_from=resume_from

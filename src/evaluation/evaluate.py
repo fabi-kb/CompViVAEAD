@@ -1,3 +1,6 @@
+# example script command to run:
+# python src/evaluation/evaluate.py --exp_dir experiments/carpet/improved/carpet_improved_lambda0.01_beta1.0_seed42
+
 import os
 import sys
 import json
@@ -66,8 +69,8 @@ def load_model(exp_dir: str) -> Tuple[torch.nn.Module, str]:
         print("Creating baseline VAE")
         model = VAE(
             input_channels=input_channels, 
-            latent_dim=1024,
-            hidden_layers=[32, 64, 128, 256]
+            latent_dim=64,
+            hidden_layers=[64, 128, 256, 512]
         )
     
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -313,6 +316,7 @@ def save_roc_pr_curves(metrics_dict: Dict, output_dir: str, score_type: str, cla
     class_name, for plot title
     """
     figs_dir = os.path.join(output_dir, "figs")
+    print(f"Saving ROC and PR curves to {figs_dir}")
     os.makedirs(figs_dir, exist_ok=True)
     
     # ROC curve
