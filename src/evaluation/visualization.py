@@ -3,12 +3,12 @@
 import os
 import json
 import numpy as np
-from pathlib import Path
 import pandas as pd
+import glob
+from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-
 
 
 def verify_visualization_inputs(run_dirs):
@@ -248,7 +248,7 @@ def make_compact_gallery(run_dir, class_name, output_path, threshold=None):
             # add original
             composite[:height] = orig_img if len(orig_img.shape) == 3 else np.stack([orig_img]*3, axis=2)
             
-            # reconstruction
+            # recon
             composite[height:2*height] = recon_img if len(recon_img.shape) == 3 else np.stack([recon_img]*3, axis=2)
             
             #difference
@@ -424,3 +424,90 @@ def save_confusion_matrix(scores_path, threshold, out_png, out_csv):
     os.makedirs(os.path.dirname(out_png), exist_ok=True)
     plt.savefig(out_png, dpi=300)
     plt.close()
+
+
+def generate_all_visualizations(experiment_root="CompViVAEAD/experiments"):
+    """Generate all required visualizations for the project."""
+    plt.style.use('seaborn-v0_8-whitegrid')
+
+    
+    os.makedirs(os.path.join("reports", "figures"), exist_ok=True)
+    
+    # process each class
+    for class_name in ["metal_nut", "carpet", "bottle"]:
+        print(f"Processing visualizations for {class_name}...")
+        
+        class_dir = os.path.join(experiment_root, class_name)
+        
+        baseline_runs = []
+        for baseline_run in glob.glob(os.path.join(class_dir, "baseline", "*")):
+            if os.path.isdir(baseline_run):
+                baseline_runs.append(baseline_run)
+                
+        improved_runs = []
+        for improved_run in glob.glob(os.path.join(class_dir, "improved", "*")):
+            if os.path.isdir(improved_run):
+                improved_runs.append(improved_run)
+        
+        all_runs = baseline_runs + improved_runs
+        
+        status = verify_visualization_inputs(all_runs)
+        if not status["ready"]:
+            print(f"Missing inputs for {class_name}:")
+            for missing in status["missing"]:
+                print(f" is {missing}")
+            continue
+        
+        # 1. PR Curves
+        pr_outpath = os.path.join("reports", "figures", f"pr_curve_{class_name}.png")
+        plot_pr_curves(all_runs, pr_outpath)
+        print(f"  - Created PR curves at {pr_outpath}")
+        
+        # 2. Metrics Table
+        metrics_csv = os.path.join("reports", "figures", f"table_metrics_{class_name}.csv")
+        build_metrics_table(all_runs, metrics_csv)
+        print(f"  - Created metrics table at {metrics_csv}")
+        
+        # 3. Process each run individually
+        for run_dir in all_runs:
+            run_id = os.path.basename(run_dir)
+            model_type = "baseline" if "baseline" in run_id else "improved"
+            print(f"  - Processing run: {run_id}")
+            
+            # 3a. Qualitative Gallery
+            gallery_path = os.path.join(run_dir, "figs", f"gallery_compact_{class_name}.png")
+            make_compact_gallery(run_dir, class_name, gallery_path)
+            print(f"    - Created gallery at {gallery_path}")
+            
+            # 3b. Loss Curves
+            epoch_metrics_path = os.path.join(run_dir, "metrics", "epoch_metrics.json")
+            if os.path.exists(epoch_metrics_path):
+                loss_curves_path = os.path.join(run_dir, "figs", "loss_curves.png")
+                plot_loss_curves(epoch_metrics_path, loss_curves_path)
+                print(f"    - Created loss curves at {loss_curves_path}")
+            
+            # 3c.Score Histograms and Scatter
+            scores_path = os.path.join(run_dir, "metrics", "per_image_scores_test.json")
+            hist_path = os.path.join(run_dir, "figs", "score_hist.png")
+            scatter_path = os.path.join(run_dir, "figs", "mae_vs_edge_scatter.png")
+            plot_score_hist_and_scatter(scores_path, hist_path, scatter_path)
+            print(f"    - Created histogram at {hist_path}")
+            print(f"    - Created scatter plot at {scatter_path}")
+            
+            # 3d. Confusion Matrix
+            metrics_path = os.path.join(run_dir, "metrics", "metrics.json")
+            with open(metrics_path, 'r') as f:
+                metrics_data = json.load(f)
+            
+            threshold = None
+            for test_set in metrics_data.get("test_sets", []):
+                if test_set.get("dataset_type") == "real_test":
+                    threshold = test_set.get("pixel_metrics", {}).get("optimal_threshold", 0.5)
+            
+            if threshold is not None:
+                cm_png = os.path.join(run_dir, "figs", "confusion_maxF1.png")
+                cm_csv = os.path.join(run_dir, "metrics", "confusion_maxF1.csv")
+                save_confusion_matrix(scores_path, threshold, cm_png, cm_csv)
+                print(f"    - Created confusion matrix at {cm_png}")
+    
+    print("\nAll visualizations generated successfully!")

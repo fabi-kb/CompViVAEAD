@@ -216,8 +216,13 @@ dataset/
 *.pt2
 *.h5
 
+# ignore notebooks and their evaluation script
 test.ipynb
+test_baseline.ipynb
+test_improved.ipynb
+evaluation_capability_for_notebooks.py
 
 # ignore logs and experiments, generated visual data
 experiments/
+models/
 data/

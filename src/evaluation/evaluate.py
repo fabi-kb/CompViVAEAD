@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from sklearn import metrics
 from typing import Dict, List, Optional, Tuple, Any
+from PIL import Image
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
@@ -64,16 +65,36 @@ def load_model(exp_dir: str) -> Tuple[torch.nn.Module, str]:
     input_channels = 3
     if is_improved:
         print(f"Creating ImprovedVAE with lambda_geo={config.get('lambda_geo', 'unknown')}")
-        model = ImprovedVAE(input_channels=input_channels)
+        
+        hidden_dims = config.get('hidden_dims', [64, 128, 256, 512])
+        latent_dim = config.get('latent_dim', 64)
+        
+        model = ImprovedVAE(
+            input_channels=input_channels,
+            latent_dim=latent_dim,
+            hidden_dims=hidden_dims
+        )
     else:
         print("Creating baseline VAE")
+        
+        # get parameters from config
+        hidden_layers = config.get('hidden_layers', [64, 128, 256, 512])
+        latent_dim = config.get('latent_dim', 64)
+        
         model = VAE(
             input_channels=input_channels, 
-            latent_dim=64,
-            hidden_layers=[64, 128, 256, 512]
+            latent_dim=latent_dim,
+            hidden_layers=hidden_layers
         )
     
-    model.load_state_dict(checkpoint["model_state_dict"])
+    try:
+        model.load_state_dict(checkpoint["model_state_dict"])
+    except RuntimeError as e:
+        print(f"Warning: Error loading model with strict matching: {e}")
+        print("Trying to load with strict=False...")
+        model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        print("Model loaded with missing or unexpected keys (architecture mismatch)")
+    
     model = model.to(DEVICE)
     model.eval()
     
@@ -237,6 +258,7 @@ def evaluate_dataset(
         os.makedirs(metrics_dir, exist_ok=True)
         
         per_image_scores = {
+            'image_ids': [f"img_{i}" for i in range(len(results['pixel_scores']))],  # Add image IDs
             'pixel_scores': results['pixel_scores'].tolist(),
             'edge_scores': results['edge_scores'].tolist(),
             'labels': labels.tolist(),
@@ -284,22 +306,22 @@ def compute_evaluation_metrics(
     precision, recall, thresholds_pr = metrics.precision_recall_curve(labels, scores)
     ap = metrics.average_precision_score(labels, scores)
     
-    # # Precision at 5% FPR
-    # idx_at_5pct = np.argmax(fpr >= 0.05)
-    # precision_at_5pct = precision[idx_at_5pct]
+    # Precision at 5% FPR
+    idx_at_5pct = np.argmax(fpr >= 0.05)
+    precision_at_5pct = precision[idx_at_5pct]
     
-    # # F1 score for optimal threshold
-    # f1_scores = 2 * precision * recall / (precision + recall + 1e-10)
-    # optimal_idx = np.argmax(f1_scores)
-    # optimal_threshold = thresholds_pr[optimal_idx] if optimal_idx < len(thresholds_pr) else thresholds_pr[-1]
-    # max_f1 = f1_scores[optimal_idx]
+    # F1 score for optimal threshold
+    f1_scores = 2 * precision * recall / (precision + recall + 1e-10)
+    optimal_idx = np.argmax(f1_scores)
+    optimal_threshold = thresholds_pr[optimal_idx] if optimal_idx < len(thresholds_pr) else thresholds_pr[-1]
+    max_f1 = f1_scores[optimal_idx]
     
     return {
         "roc_auc": float(roc_auc),
         "ap": float(ap),
-        # "precision_at_5pct": float(precision_at_5pct),
-        # "max_f1": float(max_f1),
-        # "optimal_threshold": float(optimal_threshold),
+        "precision_at_5pct": float(precision_at_5pct),
+        "max_f1": float(max_f1),
+        "optimal_threshold": float(optimal_threshold),
         "fpr": fpr.tolist(),
         "tpr": tpr.tolist(),
         "precision": precision.tolist(),
@@ -435,6 +457,57 @@ def create_reconstruction_gallery(
     plt.suptitle(f"Reconstruction Gallery - {class_name}", y=1.02)
     plt.savefig(os.path.join(figs_dir, f"gallery_{class_name}.png"), dpi=300, bbox_inches='tight')
     plt.close()
+
+
+    # saving individual images for visualization step for later
+    examples_dir = os.path.join(output_dir, "recon_examples")
+    os.makedirs(examples_dir, exist_ok=True)
+
+    for i in range(min(len(original_images), max_samples)):
+        # original image
+        orig_img = original_images[i].permute(1, 2, 0).cpu().numpy()
+        orig_img = np.clip(orig_img * 255, 0, 255).astype(np.uint8)
+        Image.fromarray(orig_img).save(os.path.join(examples_dir, f"img_{i}_orig.png"))
+        
+        # reconstructed image
+        recon_img = reconstructed_images[i].permute(1, 2, 0).cpu().numpy()
+        recon_img = np.clip(recon_img * 255, 0, 255).astype(np.uint8)
+        Image.fromarray(recon_img).save(os.path.join(examples_dir, f"img_{i}_recon.png"))
+        
+        # difference image
+        diff = np.abs(orig_img - recon_img)
+        diff = (diff - diff.min()) / (diff.max() - diff.min() + 1e-8) * 255
+        diff = diff.astype(np.uint8)
+        Image.fromarray(diff).save(os.path.join(examples_dir, f"img_{i}_diff.png"))
+        
+        # edge maps
+        edge_orig = sobel_edges(original_images[i:i+1])[0].cpu().numpy()
+
+        #we got an error here with single channel images
+        # PIL cannot handle (H, W, 1) images directly, so we add a check
+        if edge_orig.shape[0] == 1: # single channel (1, H, W)
+            edge_orig = edge_orig[0] # Convert to (H, W)
+        else: # multi-channel - convert to RGB
+            edge_orig = np.transpose(edge_orig, (1, 2, 0))
+            if edge_orig.shape[2] == 1:
+                edge_orig = edge_orig[:, :, 0]
+
+        edge_orig = np.clip(edge_orig * 255, 0, 255).astype(np.uint8)
+        Image.fromarray(edge_orig).save(os.path.join(examples_dir, f"img_{i}_edge_orig.png"))
+
+        # reconstruction edges
+        edge_recon = sobel_edges(reconstructed_images[i:i+1])[0].cpu().numpy()
+
+        #same check for single/multi-channel
+        if edge_recon.shape[0] == 1:
+            edge_recon = edge_recon[0]
+        else:
+            edge_recon = np.transpose(edge_recon, (1, 2, 0))
+            if edge_recon.shape[2] == 1:
+                edge_recon = edge_recon[:, :, 0]
+
+        edge_recon = np.clip(edge_recon * 255, 0, 255).astype(np.uint8)
+        Image.fromarray(edge_recon).save(os.path.join(examples_dir, f"img_{i}_edge_recon.png"))
 
 
 def evaluate_and_save_results(
