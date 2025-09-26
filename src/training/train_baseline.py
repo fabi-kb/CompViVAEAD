@@ -239,6 +239,11 @@ def main(
     experiment_dir = os.path.join(EXPERIMENT_ROOT, class_name, "baseline", run_id)
     os.makedirs(experiment_dir, exist_ok=True)
 
+    # loading dataset
+    input_channels = 3
+    latent_dim = 64
+    hidden_layers = [64, 128, 256, 512]
+
     config = {
         "class_name": class_name,
         "epochs": epochs,
@@ -248,15 +253,14 @@ def main(
         "run_id": run_id,
         "data_subset": data_subset,
         "val_split": val_split,
+        "input_channels": input_channels,
+        "latent_dim": latent_dim,
+        "hidden_layers": hidden_layers,
+        "learning_rate": learning_rate,
     }
 
     with open(os.path.join(experiment_dir, "config.json"), "w") as f:
         json.dump(config, f, indent=4)
-
-    # loading dataset
-    input_channels = 3
-    latent_dim = 64
-    hidden_layers = [64, 128, 256, 512]
 
     num_workers = min(8, os.cpu_count() // 2)
 
@@ -330,8 +334,7 @@ def main(
 
 
 if __name__ == "__main__":
-    # If build_parser doesn't have all required args, we can extend it
-    # But let's assume it's complete for now
+    # if build_parser does not have all required args, we can extend it
     parser = build_parser()
     args = parser.parse_args()
 

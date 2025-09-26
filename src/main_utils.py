@@ -7,7 +7,7 @@ import tqdm as tqdm
 from typing import Dict, Optional
 from skimage import io, transform, exposure, color
 
-from .config import BETA, CLASS_STATS, DATA_PATH, LAMBDA_GEO
+from .config import BETA, CLASS_STATS, DATA_PATH, LAMBDA_GEO, LEARNING_RATE
 
 
 def transform_image(
@@ -217,6 +217,12 @@ def build_parser():
         type=float,
         default=LAMBDA_GEO,
         help="Weight for geometric prior term (ignored by baseline)",
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=LEARNING_RATE,
+        help="Learning rate for the optimizer",
     )
     parser.add_argument(
         "--run_id",

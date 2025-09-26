@@ -132,6 +132,9 @@ def compute_anomaly_scores(
         for batch in tqdm(dataloader, desc="Computing anomaly scores"):
             # MVTecDataset returns images directly
             images = batch.to(DEVICE)
+
+            if len(images.shape) > 4: # if extra dimension
+                images = images.squeeze(1) #remove
             
             # reconstructions
             recons, _, _ = model(images)
