@@ -75,7 +75,7 @@ EARLY_STOPPING_PATIENCE = 15
 IMAGE_SIZE = 128
 CHANNELS = 3
 LATENT_DIM = 128
-BETA = 1.0 # KL weight {0.5,1.0,2.0}
+BETA = 0.05 # KL weight {0.5,1.0,2.0}
 LAMBDA_GEO = 0.1 # edge prior weight {0.01,0.1,1.0}
 
 # edge prior options

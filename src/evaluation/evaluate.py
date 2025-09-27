@@ -66,8 +66,8 @@ def load_model(exp_dir: str) -> Tuple[torch.nn.Module, str]:
     if is_improved:
         print(f"Creating ImprovedVAE with lambda_geo={config.get('lambda_geo', 'unknown')}")
         
-        hidden_dims = config.get('hidden_dims', [64, 128, 256, 512])
-        latent_dim = config.get('latent_dim', 64)
+        hidden_dims = config.get('hidden_dims', [32, 64, 128, 256, 512])
+        latent_dim = config.get('latent_dim', 128)
         
         model = ImprovedVAE(
             input_channels=input_channels,
@@ -78,8 +78,8 @@ def load_model(exp_dir: str) -> Tuple[torch.nn.Module, str]:
         print("Creating baseline VAE")
         
         # get parameters from config
-        hidden_layers = config.get('hidden_layers', [64, 128, 256, 512])
-        latent_dim = config.get('latent_dim', 64)
+        hidden_layers = config.get('hidden_layers', [32, 64, 128, 256, 512])
+        latent_dim = config.get('latent_dim', 128)
         
         model = VAE(
             input_channels=input_channels, 

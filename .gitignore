@@ -221,6 +221,7 @@ test.ipynb
 test_baseline.ipynb
 test_improved.ipynb
 evaluation_capability_for_notebooks.py
+temp_evaluation/
 
 # ignore logs and experiments, generated visual data
 experiments/
