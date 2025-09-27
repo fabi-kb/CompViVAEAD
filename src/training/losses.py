@@ -105,16 +105,13 @@ def vae_loss(
 
     batch_size = x.size(0)
     # reconstruction loss (MSE)
-    recon_loss = F.mse_loss(recon_x, x, reduction="mean")
-    num_pixels = x.size(1) * x.size(2) * x.size(3)
-    recon_loss = recon_loss * num_pixels  # total per-sample loss
+    recon_loss = F.mse_loss(recon_x, x, reduction="sum") / batch_size
 
     # KL divergence
     kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
     # normalize
     kl_loss = kl_loss / batch_size
-    recon_loss = recon_loss / batch_size
 
     total_loss = recon_loss + beta * kl_loss
 
