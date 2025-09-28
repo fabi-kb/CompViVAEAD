@@ -144,7 +144,7 @@ def train_vae(
 
         scheduler.step(avg_val_loss)
 
-        scheduler.step(val_loss)
+        #scheduler.step(val_loss)
 
         metrics["epochs"].append(epoch + 1)
         metrics["train_loss"].append(avg_loss)
