@@ -33,7 +33,7 @@ class VAE(nn.Module):
                 [
                     nn.Conv2d(in_channels, h, kernel_size=3, stride=2, padding=1),
                     nn.BatchNorm2d(h),
-                    nn.ReLU(),
+                    nn.LeakyReLU(),
                 ]
             )
             in_channels = h
@@ -68,7 +68,7 @@ class VAE(nn.Module):
                         output_padding=1,
                     ),
                     nn.BatchNorm2d(h),
-                    nn.ReLU(),
+                    nn.LeakyReLU(),
                 ]
             )
             in_channels = h

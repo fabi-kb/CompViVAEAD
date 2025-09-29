@@ -12,7 +12,6 @@ from typing import Dict, List, Optional, Tuple, Any
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-
 from src.main_utils import build_parser
 import torch
 import torch.nn as nn
@@ -22,13 +21,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# from ..models.improved_vae import ImprovedVAE
-# from ..data_loader import MVTecDataset
-# from .losses import vae_geo_loss, sobel_edges
 from src.models.improved_vae import ImprovedVAE
 from src.data_loader import MVTecDataset
 from src.training.losses import vae_geo_loss, sobel_edges
-# from ..evaluation.visualization import visualize_reconstructions, visualize_edge_maps
 from src.config import (
     IMAGE_SIZE, LATENT_DIM, RANDOM_SEED, DEVICE, BATCH_SIZE, NUM_WORKERS, PIN_MEMORY,
     LEARNING_RATE, BETAS, WEIGHT_DECAY, OPTIMIZER,

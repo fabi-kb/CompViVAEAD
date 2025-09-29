@@ -144,7 +144,7 @@ def train_vae(
 
         scheduler.step(avg_val_loss)
 
-        scheduler.step(val_loss)
+        # scheduler.step(val_loss)
 
         metrics["epochs"].append(epoch + 1)
         metrics["train_loss"].append(avg_loss)
@@ -155,9 +155,9 @@ def train_vae(
         metrics["val_kl_loss"].append(avg_val_kl_loss)
 
         print(
-            f"Epoch {epoch+1}/{config['epochs']}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}\n"
-            f"Train Recon: {train_recon_loss:.4f}, Train KL: {train_kl_loss:.4f}\n"
-            f"Val Recon: {val_recon_loss:.4f}, Val KL: {val_kl_loss:.4f}"
+            f"Epoch {epoch+1}/{config['epochs']}, Train Loss: {avg_loss:.4f}, Val Loss: {avg_val_loss:.4f}\n"
+            f"Train Recon: {avg_recon_loss:.4f}, Train KL: {avg_kl_loss:.4f}\n"
+            f"Val Recon: {avg_val_recon_loss:.4f}, Val KL: {avg_val_kl_loss:.4f}"
         )
 
         if experiment_dir:
@@ -180,8 +180,8 @@ def train_vae(
         #     print(f"Saved checkpoint to {checkpoint_path}")
 
         # best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             if experiment_dir:
                 best_model_path = os.path.join(models_dir, "best_model.pt")
                 torch.save(
@@ -191,11 +191,11 @@ def train_vae(
                         "optimizer_state_dict": optimizer.state_dict(),
                         "scheduler_state_dict": scheduler.state_dict(),
                         "metrics": metrics,
-                        "val_loss": val_loss,
+                        "val_loss": avg_val_loss,
                     },
                     best_model_path,
                 )
-                print(f"Saved best model with val_loss: {val_loss:.4f}")
+                print(f"Saved best model with val_loss: {avg_val_loss:.4f}")
 
     return model, metrics
 
