@@ -13,13 +13,11 @@ from ..config import EDGE_ON_DENORM, EDGE_GRAYSCALE, GEO_LOSS_REDUCTION
 
 def sobel_edges(x: torch.Tensor) -> torch.Tensor:
     """
-    Compute Sobel edges from input tensor using differentiable convolutions.
+    compute Sobel edges from input tensor using differentiable convolutions.
 
-    Args:
-        x: Input tensor of shape [B, C, H, W]
+    x: Input tensor of shape [B, C, H, W]
 
-    Returns:
-        Edge map tensor of shape [B, 1, H, W]
+    retturns: edge map tensor of shape [B, 1, H, W]
     """
     # If x is grayscale with shape [B, 1, H, W], use as is
     # If x is RGB [B, 3, H, W] and EDGE_GRAYSCALE=True, convert to grayscale
@@ -63,20 +61,22 @@ def sobel_edges(x: torch.Tensor) -> torch.Tensor:
 
 def edge_map_loss(x: torch.Tensor, recon_x: torch.Tensor) -> torch.Tensor:
     """
-    Compute edge map loss between original and reconstructed images.
+    compute edge map loss between original and reconstructed images.
 
-    Args:
-        x: Original images tensor of shape [B, C, H, W]
-        recon_x: Reconstructed images tensor of shape [B, C, H, W]
+    x: original img [B, C, H, W]
+    recon_x: reconstructed img [B, C, H, W]
 
-    Returns:
-        Edge map loss (scalar tensor)
+    return: edge map loss (scalar tensor)
     """
     edges_x = sobel_edges(x)
     edges_recon = sobel_edges(recon_x)
 
     # MSE between edge maps with specified reduction
-    loss = F.mse_loss(edges_recon, edges_x, reduction='mean')
+    loss = F.mse_loss(edges_recon, edges_x, reduction=GEO_LOSS_REDUCTION)# GEO_LOSS_REDUCTION = mean
+
+    # # normalize by total elements
+    # total_elements = edges_x.numel()
+    # loss = loss / total_elements
 
     return loss
 
@@ -89,29 +89,33 @@ def vae_loss(
     beta: float = 1.0,
 ) -> dict:
     """
-    Compute VAE loss components: reconstruction loss and KL divergence.
+    compute VAE loss components: reconstruction loss and KL divergence.
 
-    Args:
-        recon_x: Reconstructed images tensor of shape [B, C, H, W]
-        x: Original images tensor of shape [B, C, H, W]
-        mu: Mean of latent distribution of shape [B, latent_dim]
-        logvar: Log variance of latent distribution of shape [B, latent_dim]
-        beta: Weight for KL divergence term
-        reduction: Reduction method for reconstruction loss ('mean' or 'sum')
+    x: original img [B, C, H, W]
+    recon_x: reconstructed img [B, C, H, W]
+    mu: mean of latent distribution of shape [B, latent_dim]
+    logvar: log variance of latent distribution [B, latent_dim]
+    beta: weight for KL divergence term
+    reduction: reduction method for reconstruction loss ('mean' or 'sum')
 
     Returns:
         Dictionary containing total loss and individual components
     """
 
     batch_size = x.size(0)
+
     # reconstruction loss (MSE)
     recon_loss = F.mse_loss(recon_x, x, reduction="mean")
-
+    num_pixels = x.size(1) * x.size(2) * x.size(3)
+    recon_loss = recon_loss * num_pixels # total per-sample loss
+    
     # KL divergence
-    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
     # normalize
-    #kl_loss = kl_loss / batch_size
+    # total_elements = x.size(1) * x.size(2) * x.size(3)
+    kl_loss = kl_loss / batch_size
+    # recon_loss = recon_loss / batch_size
 
     total_loss = recon_loss + beta * kl_loss
 
@@ -127,20 +131,18 @@ def vae_geo_loss(
     lambda_geo: float = 0.1,
 ) -> dict:
     """
-    Compute total VAE loss with geometric prior.
+    compute total VAE loss with geometric prior.
 
-    Args:
-        recon_x: Reconstructed images tensor of shape [B, C, H, W]
-        x: Original images tensor of shape [B, C, H, W]
-        mu: Mean of latent distribution of shape [B, latent_dim]
-        logvar: Log variance of latent distribution of shape [B, latent_dim]
-        beta: Weight for KL divergence term
-        lambda_geo: Weight for geometric loss term
+    x: Original img [B, C, H, W]
+    recon_x: Reconstructed img [B, C, H, W]
+    mu: Mean of latent distribution [B, latent_dim]
+    logvar: Log variance of latent distribution [B, latent_dim]
+    beta: weight for KL divergence term
+    lambda_geo: weight for geometric loss term
 
-    Returns:
-        Dictionary containing total loss and individual components
+    returns: dictionary of total loss and individual components
     """
-    # standard VAE losses
+    # vanilla VAE losses
     vae_losses = vae_loss(recon_x, x, mu, logvar, beta)
 
     # geometric prior loss
