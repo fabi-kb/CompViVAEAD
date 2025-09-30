@@ -258,7 +258,7 @@ def evaluate_dataset(
         os.makedirs(metrics_dir, exist_ok=True)
         
         per_image_scores = {
-            'image_ids': [f"img_{i}" for i in range(len(results['pixel_scores']))],  # Add image IDs
+            'image_ids': [f"img_{i}" for i in range(len(results['pixel_scores']))], # add image IDs
             'pixel_scores': results['pixel_scores'].tolist(),
             'edge_scores': results['edge_scores'].tolist(),
             'labels': labels.tolist(),
@@ -341,7 +341,6 @@ def save_roc_pr_curves(metrics_dict: Dict, output_dir: str, score_type: str, cla
     class_name, for plot title
     """
     figs_dir = os.path.join(output_dir, "figs")
-    print(f"Saving ROC and PR curves to {figs_dir}")
     os.makedirs(figs_dir, exist_ok=True)
     
     # ROC curve
@@ -560,8 +559,8 @@ def evaluate_and_save_results(
             batch_size=batch_size,
             return_images=True
         )
-    except:
-        print("Cutout synthetic dataset not found. We Skipp...")
+    except Exception as e:
+        print(f"Cutout synthetic dataset not found. We Skipp... {e}")
         cutout_results = None
 
     # 4. synthetic scratch defects
@@ -574,8 +573,8 @@ def evaluate_and_save_results(
             batch_size=batch_size,
             return_images=True
         )
-    except:
-        print("Scratches synthetic dataset not found. We Skipp...")
+    except Exception as e:
+        print(f"Scratches synthetic dataset not found. We Skipp... {e}")
         scratch_results = None
     
     # for real test data
@@ -687,8 +686,14 @@ def main():
     
     args = parser.parse_args()
     
+    # Normalize all paths to use consistent separators
+    if args.exp_dir:
+        args.exp_dir = os.path.normpath(args.exp_dir)
+    
     if args.output_dir is None:
         args.output_dir = os.path.join(args.exp_dir, "evaluation")
+    
+    args.output_dir = os.path.normpath(args.output_dir)  # Normalize output path
     
     os.makedirs(args.output_dir, exist_ok=True)
     
