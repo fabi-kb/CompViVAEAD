@@ -7,11 +7,19 @@ class VAE(nn.Module):
     def __init__(
         self,
         input_channels=3,
-        latent_dim=16,
-        hidden_layers=[32, 64, 128],
+        latent_dim=128,
+        hidden_layers=[32, 64, 128, 256, 512],
         image_size=128,
     ):
         super(VAE, self).__init__()
+
+        self.config = {
+            'input_channels': input_channels,
+            'latent_dim': latent_dim,
+            'hidden_layers': hidden_layers,
+            'image_size': image_size
+        }
+
         self._latent_dim = latent_dim
         self._input_channels = input_channels
 
@@ -25,7 +33,7 @@ class VAE(nn.Module):
                 [
                     nn.Conv2d(in_channels, h, kernel_size=3, stride=2, padding=1),
                     nn.BatchNorm2d(h),
-                    nn.ReLU(),
+                    nn.LeakyReLU(),
                 ]
             )
             in_channels = h
@@ -60,7 +68,7 @@ class VAE(nn.Module):
                         output_padding=1,
                     ),
                     nn.BatchNorm2d(h),
-                    nn.ReLU(),
+                    nn.LeakyReLU(),
                 ]
             )
             in_channels = h

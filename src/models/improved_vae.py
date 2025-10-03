@@ -14,17 +14,15 @@ class ImprovedVAE(nn.Module):
     
     def __init__(
         self,
-        latent_dim: int = LATENT_DIM,
-        input_channels: int = CHANNELS,
-        hidden_dims: List[int] = None,
+        input_channels=3,
+        latent_dim=128,
+        hidden_dims=[32, 64, 128, 256, 512],
+        image_size=128,
     ):
         super(ImprovedVAE, self).__init__()
         
         self.latent_dim = latent_dim
         self.input_channels = input_channels
-        
-        if hidden_dims is None:
-            hidden_dims = [32, 64, 128, 256, 512]
         self.hidden_dims = hidden_dims
         
         # encoder

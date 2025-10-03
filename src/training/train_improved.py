@@ -1,13 +1,18 @@
-#  added parser fully with the help of an llm
-#  description of funcs are refined/added
+# example script command to run:
+# python src/training/train_improved.py --class_name metal_nut --epochs 100 --batch_size 64 --seed 42 --lambda_geo 0.1 --beta 0.05 --run_id metal_nut_improved_lambda0.1_beta0.05_seed42
+# python src/training/train_improved.py --class_name bottle --epochs 100 --batch_size 64 --seed 42 --lambda_geo 0.1 --beta 0.05 --run_id bottle_improved_lambda0.1_beta0.05_seed42
 
 import os
+import sys
 import json
 import time
 import datetime
 import argparse
 from typing import Dict, List, Optional, Tuple, Any
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from src.main_utils import build_parser
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -16,12 +21,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from ..models.improved_vae import ImprovedVAE
-from ..data_loader import MVTecDataset
-from .losses import vae_geo_loss, sobel_edges
-from ..evaluation.visualization import visualize_reconstructions, visualize_edge_maps
-from ..config import (
-    RANDOM_SEED, DEVICE, BATCH_SIZE, NUM_WORKERS, PIN_MEMORY,
+from src.models.improved_vae import ImprovedVAE
+from src.data_loader import MVTecDataset
+from src.training.losses import vae_geo_loss, sobel_edges
+from src.config import (
+    IMAGE_SIZE, LATENT_DIM, RANDOM_SEED, DEVICE, BATCH_SIZE, NUM_WORKERS, PIN_MEMORY,
     LEARNING_RATE, BETAS, WEIGHT_DECAY, OPTIMIZER,
     EPOCHS, BETA, LAMBDA_GEO,
     USE_SCHEDULER, SCHEDULER_TYPE, SCHEDULER_PARAMS,
@@ -32,17 +36,8 @@ from ..config import (
 
 
 def train_model(
-    model: nn.Module,
-    train_loader: DataLoader,
-    val_loader: DataLoader,
-    optimizer: torch.optim.Optimizer,
-    scheduler: Optional[torch.optim.lr_scheduler._LRScheduler],
-    beta: float = BETA,
-    lambda_geo: float = LAMBDA_GEO,
-    num_epochs: int = EPOCHS,
-    device: torch.device = DEVICE,
-    experiment_dir: str = None,
-    resume_from: str = None,
+    model, train_loader, val_loader, optimizer, scheduler,
+    device, config, experiment_dir, resume_from, 
 ) -> Dict[str, List[float]]:
     """
     Train the improved VAE model with geometric prior loss.
@@ -96,21 +91,20 @@ def train_model(
     patience_counter = 0
     
     # training
-    for epoch in range(start_epoch, num_epochs):
+    for epoch in range(start_epoch, config['epochs']):
         model.train()
         train_losses = {
             'loss': 0.0, 'recon_loss': 0.0, 'kl_loss': 0.0, 'geo_loss': 0.0
         }
-        
-        for batch_idx, batch in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} [Train]")):
-            images = batch["image"].to(device)
+
+        for batch_idx, batch in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{config['epochs']} [Train]")):
+            images = batch.to(device)
             
             optimizer.zero_grad()
             recon_images, mu, logvar = model(images)
-            
-            loss_dict = vae_geo_loss(recon_images, images, mu, logvar, 
-                                   beta=beta, lambda_geo=lambda_geo)
-            
+            loss_dict = vae_geo_loss(recon_images, images, mu, logvar,
+                                   beta=config['beta'], lambda_geo=config['lambda_geo'])
+
             loss = loss_dict['loss']
             
             loss.backward()
@@ -132,14 +126,14 @@ def train_model(
         }
         
         with torch.no_grad():
-            for batch_idx, batch in enumerate(tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} [Val]")):
-                images = batch["image"].to(device)
+            for batch_idx, batch in enumerate(tqdm(val_loader, desc=f"Epoch {epoch+1}/{config['epochs']} [Val]")):
+                images = batch.to(device)
                 
                 recon_images, mu, logvar = model(images)
-                
-                loss_dict = vae_geo_loss(recon_images, images, mu, logvar, 
-                                       beta=beta, lambda_geo=lambda_geo)
-                
+
+                loss_dict = vae_geo_loss(recon_images, images, mu, logvar,
+                                       beta=config['beta'], lambda_geo=config['lambda_geo'])
+
                 # update losses
                 for key, value in loss_dict.items():
                     val_losses[key] += value.item()
@@ -157,26 +151,26 @@ def train_model(
                 scheduler.step()
         
         # epoch summary
-        print(f"Epoch {epoch+1}/{num_epochs}:")
+        print(f"Epoch {epoch+1}/{config['epochs']}:")
         print(f"  Train Loss: {train_losses['loss']:.6f} (Recon: {train_losses['recon_loss']:.6f}, "
               f"KL: {train_losses['kl_loss']:.6f}, Geo: {train_losses['geo_loss']:.6f})")
         print(f"  Val Loss: {val_losses['loss']:.6f} (Recon: {val_losses['recon_loss']:.6f}, "
               f"KL: {val_losses['kl_loss']:.6f}, Geo: {val_losses['geo_loss']:.6f})")
         
-        # save checkpoint for resuming ability
-        if (epoch + 1) % SAVE_EVERY == 0 or epoch == num_epochs - 1:
-            checkpoint_path = os.path.join(models_dir, CHECKPOINT_NAME.format(epoch=epoch+1))
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'history': history,
-                'config': {
-                    'beta': beta,
-                    'lambda_geo': lambda_geo
-                }
-            }, checkpoint_path)
-            print(f"Checkpoint saved to {checkpoint_path}")
+        # # save checkpoint for resuming ability
+        # if (epoch + 1) % SAVE_EVERY == 0 or epoch == num_epochs - 1:
+        #     checkpoint_path = os.path.join(models_dir, CHECKPOINT_NAME.format(epoch=epoch+1))
+        #     torch.save({
+        #         'epoch': epoch,
+        #         'model_state_dict': model.state_dict(),
+        #         'optimizer_state_dict': optimizer.state_dict(),
+        #         'history': history,
+        #         'config': {
+        #             'beta': beta,
+        #             'lambda_geo': lambda_geo
+        #         }
+        #     }, checkpoint_path)
+        #     print(f"Checkpoint saved to {checkpoint_path}")
         
         # save best model
         if val_losses['loss'] < best_val_loss:
@@ -188,38 +182,35 @@ def train_model(
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'history': history,
-                'config': {
-                    'beta': beta,
-                    'lambda_geo': lambda_geo
-                }
+                'config': config
             }, best_model_path)
             print(f"Best model saved with validation loss: {best_val_loss:.6f}")
         else:
             patience_counter += 1
         
-        # generateing visualizations
-        if (epoch + 1) % EVAL_EVERY == 0 or epoch == num_epochs - 1:
-            with torch.no_grad():
-                sample_batch = next(iter(val_loader))
-                sample_images = sample_batch["image"].to(device)
-                sample_recon, _, _ = model(sample_images)
+        # # generateing visualizations
+        # if (epoch + 1) % EVAL_EVERY == 0 or epoch == num_epochs - 1:
+        #     with torch.no_grad():
+        #         sample_batch = next(iter(val_loader))
+        #         sample_images = sample_batch.to(device)
+        #         sample_recon, _, _ = model(sample_images)
                 
-                # reconstructions
-                fig_recon = visualize_reconstructions(
-                    sample_images, sample_recon, 
-                    num_images=min(8, len(sample_images))
-                )
-                fig_recon.savefig(os.path.join(figs_dir, f"recon_epoch{epoch+1}.png"))
-                plt.close(fig_recon)
+        #         # reconstructions
+        #         fig_recon = visualize_reconstructions(
+        #             sample_images, sample_recon, 
+        #             num_images=min(8, len(sample_images))
+        #         )
+        #         fig_recon.savefig(os.path.join(figs_dir, f"recon_epoch{epoch+1}.png"))
+        #         plt.close(fig_recon)
                 
-                # edge maps
-                fig_edges = visualize_edge_maps(
-                    sample_images, sample_recon, 
-                    edge_func=sobel_edges,
-                    num_images=min(4, len(sample_images))
-                )
-                fig_edges.savefig(os.path.join(figs_dir, f"edges_epoch{epoch+1}.png"))
-                plt.close(fig_edges)
+        #         # edge maps
+        #         fig_edges = visualize_edge_maps(
+        #             sample_images, sample_recon, 
+        #             edge_func=sobel_edges,
+        #             num_images=min(4, len(sample_images))
+        #         )
+        #         fig_edges.savefig(os.path.join(figs_dir, f"edges_epoch{epoch+1}.png"))
+        #         plt.close(fig_edges)
         
         with open(os.path.join(metrics_dir, METRICS_JSON), 'w') as f:
             json.dump(history, f, indent=4)
@@ -260,66 +251,107 @@ def get_scheduler(
         return None
         
     if scheduler_type == "ReduceLROnPlateau":
-        return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **params)
-    elif scheduler_type == "CosineAnnealingLR":
-        return torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=params.get("T_max", 10), eta_min=params.get("eta_min", 0)
-        )
-    elif scheduler_type == "StepLR":
-        return torch.optim.lr_scheduler.StepLR(
-            optimizer, step_size=params.get("step_size", 10), gamma=params.get("gamma", 0.1)
-        )
+        # Filter out unsupported parameters
+        valid_params = {}
+        # List of valid parameters for ReduceLROnPlateau
+        valid_keys = ['mode', 'factor', 'patience', 'threshold', 
+                     'threshold_mode', 'cooldown', 'min_lr', 'eps']
+        for key in valid_keys:
+            if key in params:
+                valid_params[key] = params[key]
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **valid_params)
+    # elif scheduler_type == "CosineAnnealingLR":
+    #     return torch.optim.lr_scheduler.CosineAnnealingLR(
+    #         optimizer, T_max=params.get("T_max", 10), eta_min=params.get("eta_min", 0)
+    #     )
+    # elif scheduler_type == "StepLR":
+    #     return torch.optim.lr_scheduler.StepLR(
+    #         optimizer, step_size=params.get("step_size", 10), gamma=params.get("gamma", 0.1)
+    #     )
     else:
         raise ValueError(f"Unsupported scheduler: {scheduler_type}")
 
 
 def main(
     class_name: str,
+    epochs: int = EPOCHS,
+    batch_size: int = BATCH_SIZE,
+    seed: int = RANDOM_SEED,
     data_subset: float = 1.0,
     val_split: float = 0.1,
     beta: float = BETA,
     lambda_geo: float = LAMBDA_GEO,
+    learning_rate: float = LEARNING_RATE,
     run_id: Optional[str] = None,
-    resume_from: Optional[str] = None
+    resume_from: Optional[str] = None,
+    device: str = DEVICE
 ):
     """
-    Main training function.
-    
-    Args:
-        class_name: MVTec class to train on
-        data_subset: Fraction of training data to use
-        val_split: Validation split ratio
-        beta: Weight for KL divergence term
-        lambda_geo: Weight for geometric prior term
-        run_id: Custom run identifier
-        resume_from: Checkpoint path to resume from
+    class_name: MVTec class to train on
+    epochs: Number of training epochs
+    batch_size: Batch size for training
+    seed: Random seed
+    data_subset: Fraction of training data to use
+    val_split: Validation split ratio
+    beta: Weight for KL divergence term
+    lambda_geo: Weight for geometric prior term
+    run_id: Custom run identifier
+    resume_from: Checkpoint path to resume from
     """
-    torch.manual_seed(RANDOM_SEED)
-    np.random.seed(RANDOM_SEED)
-    
-    # experiment directory
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    if run_id is None:
-        run_id = f"{class_name}_beta{beta}_geo{lambda_geo}_{timestamp}"
-    experiment_dir = os.path.join(EXPERIMENT_ROOT, run_id)
-    os.makedirs(experiment_dir, exist_ok=True)
-    
-    config = {
+    run_config = {
+        # Run identification
         'class_name': class_name,
+        'timestamp': datetime.datetime.now().strftime("%Y%m%d_%H%M%S"),
+        'run_id': run_id if run_id else f"{class_name}_improved_lambda{lambda_geo}_beta{beta}_seed{seed}",
+        
+        # Training parameters
+        'epochs': epochs,
+        'batch_size': batch_size,
+        'seed': seed,
         'data_subset': data_subset,
         'val_split': val_split,
+        'learning_rate': learning_rate,
+        
+        # Model hyperparameters
         'beta': beta,
         'lambda_geo': lambda_geo,
-        'random_seed': RANDOM_SEED,
-        'batch_size': BATCH_SIZE,
-        'learning_rate': LEARNING_RATE,
-        'epochs': EPOCHS
+        'latent_dim': LATENT_DIM,
+        'image_size': IMAGE_SIZE,
+        
+        # Architecture
+        'hidden_dims': [32, 64, 128, 256, 512],
+        
+        # Optimizer settings
+        'optimizer': OPTIMIZER,
+        'weight_decay': WEIGHT_DECAY,
+        'betas': BETAS,
+        
+        # scheduler settings
+        'use_scheduler': USE_SCHEDULER,
+        'scheduler_type': SCHEDULER_TYPE,
+        'scheduler_params': SCHEDULER_PARAMS,
     }
+
+    print(f"EXPERIMENT_ROOT = {EXPERIMENT_ROOT}")
+    print(f"Will save to: {os.path.join(EXPERIMENT_ROOT, run_config['class_name'], 'improved', run_config['run_id'])}")
+    print(f"Working directory: {os.getcwd()}")
+    
+    print("ACTIVE CONFIGURATION:")
+    for key, value in run_config.items():
+        print(f"  {key}: {value}")
+    
+    torch.manual_seed(run_config['seed'])
+    np.random.seed(run_config['seed'])
+    
+    # experiment directory
+    experiment_dir = os.path.join(EXPERIMENT_ROOT, run_config['class_name'], "improved", run_config['run_id'])
+    os.makedirs(experiment_dir, exist_ok=True)
+    
     with open(os.path.join(experiment_dir, 'config.json'), 'w') as f:
-        json.dump(config, f, indent=4)
+        json.dump(run_config, f, indent=4)
     
     print(f"Loading {class_name} dataset...")
-    train_dataset = MVTecDataset(class_name=class_name, split='train')
+    train_dataset = MVTecDataset(class_name=run_config['class_name'], split='train')
     
     # subset data if requested
     if data_subset < 1.0:
@@ -332,42 +364,52 @@ def main(
     train_size = len(train_dataset) - val_size
     train_subset, val_subset = random_split(
         train_dataset, [train_size, val_size],
-        generator=torch.Generator().manual_seed(RANDOM_SEED)
+        generator=torch.Generator().manual_seed(run_config['seed'])
     )
     
     train_loader = DataLoader(
-        train_subset, batch_size=BATCH_SIZE, shuffle=True,
+        train_subset, batch_size=run_config['batch_size'], shuffle=True,
         num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY
     )
     val_loader = DataLoader(
-        val_subset, batch_size=BATCH_SIZE, shuffle=False,
+        val_subset, batch_size=run_config['batch_size'], shuffle=False,
         num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY
     )
-    
+
     print(f"Train samples: {len(train_subset)}, Validation samples: {len(val_subset)}")
     
     # gett a sample to see input channels
     sample_batch = next(iter(train_loader))
-    input_channels = sample_batch["image"].shape[1]# [B, C, H, W]
-    
-    model = ImprovedVAE(input_channels=input_channels).to(DEVICE)
+    input_channels = sample_batch.shape[1]# [B, C, H, W]
+    print(f"Input image channels: {input_channels}")
+
+    model = ImprovedVAE(
+        input_channels=input_channels,
+        latent_dim=run_config['latent_dim'],
+        hidden_dims=run_config['hidden_dims']
+    ).to(device)
+
     print(f"Created ImprovedVAE model with {input_channels} input channels")
     
-    optimizer = get_optimizer(model)
+    optimizer = get_optimizer(
+        model, 
+        optimizer_name=run_config['optimizer'],
+        lr=run_config['learning_rate'],
+        betas=run_config['betas'],
+        weight_decay=run_config['weight_decay']
+    )
     scheduler = get_scheduler(optimizer)
     
     # train 
-    print(f"Starting training with beta={beta}, lambda_geo={lambda_geo}")
+    print(f"Starting training with beta={run_config['beta']}, lambda_geo={run_config['lambda_geo']}")
     history = train_model(
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
         optimizer=optimizer,
         scheduler=scheduler,
-        beta=beta,
-        lambda_geo=lambda_geo,
-        num_epochs=EPOCHS,
-        device=DEVICE,
+        device=device,
+        config=run_config,
         experiment_dir=experiment_dir,
         resume_from=resume_from
     )
@@ -395,21 +437,7 @@ def main(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--class_name", type=str, required=True,
-                        help="MVTec class to train on")
-    parser.add_argument("--data_subset", type=float, default=1.0,
-                        help="Fraction of training data to use")
-    parser.add_argument("--val_split", type=float, default=0.1,
-                        help="Validation split ratio")
-    parser.add_argument("--beta", type=float, default=BETA,
-                        help="Weight for KL divergence term")
-    parser.add_argument("--lambda_geo", type=float, default=LAMBDA_GEO,
-                        help="Weight for geometric prior term")
-    parser.add_argument("--run_id", type=str, default=None,
-                        help="Custom run identifier")
-    parser.add_argument("--resume_from", type=str, default=None,
-                        help="Checkpoint path to resume from")
-    
+    parser = build_parser()
     args = parser.parse_args()
+    
     main(**vars(args))

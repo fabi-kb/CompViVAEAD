@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import os
 import sys
@@ -6,7 +7,7 @@ import tqdm as tqdm
 from typing import Dict, Optional
 from skimage import io, transform, exposure, color
 
-from .config import CLASS_STATS, DATA_PATH
+from .config import BETA, CLASS_STATS, DATA_PATH, LAMBDA_GEO, LEARNING_RATE
 
 
 def transform_image(
@@ -120,29 +121,12 @@ def create_mvtec_h5_dataset(
         print("Dataset creation complete.")
 
 
-def main():
-    folder_path = sys.argv[1] if len(sys.argv) > 1 else "."
-    save = sys.argv[2] if len(sys.argv) > 2 else False
-
-    target_size = (128, 128)
-    normalize = "0-1"
-    grayscale = False
-    antialiasing = True
-
-    if save:
-        h5_filename = "mvtec_dataset.h5"
-        create_mvtec_h5_dataset(
-            folder_path,
-            h5_filename,
-            target_size=target_size,
-            normalize=normalize,
-            grayscale=grayscale,
-            antialiasing=antialiasing,
-        )
-
-
 # Small helper to compute per-class mean and std from HDF5 dataset
-def compute_class_stats(h5_path: Optional[str] = None, classes: Optional[list] = None, max_samples: Optional[int] = None) -> Dict[str, Dict[str, tuple]]:
+def compute_class_stats(
+    h5_path: Optional[str] = None,
+    classes: Optional[list] = None,
+    max_samples: Optional[int] = None,
+) -> Dict[str, Dict[str, tuple]]:
     """
     Compute per-class channel mean/std from HDF5 layout like:
     <class>/train/good/images -> (N,H,W,3) or (N,H,W)
@@ -178,7 +162,7 @@ def compute_class_stats(h5_path: Optional[str] = None, classes: Optional[list] =
             n_seen = 0
 
             for i in range(count):
-                img = ds[i] # shape (H,W,3) or (H,W)
+                img = ds[i]  # shape (H,W,3) or (H,W)
                 if img.ndim == 2:
                     # grayscale -> replicate to 3 channels for stats
                     img = np.repeat(img[:, :, None], 3, axis=2)
@@ -187,11 +171,11 @@ def compute_class_stats(h5_path: Optional[str] = None, classes: Optional[list] =
                     img = img.astype(np.float32) / 255.0
                 # sum across spatial dims -> per-channel sums
                 if sum_c is None:
-                    sum_c = img.sum(axis=(0,1))
-                    sum_sq_c = (img ** 2).sum(axis=(0,1))
+                    sum_c = img.sum(axis=(0, 1))
+                    sum_sq_c = (img**2).sum(axis=(0, 1))
                 else:
-                    sum_c += img.sum(axis=(0,1))
-                    sum_sq_c += (img ** 2).sum(axis=(0,1))
+                    sum_c += img.sum(axis=(0, 1))
+                    sum_sq_c += (img**2).sum(axis=(0, 1))
                 n_seen += img.shape[0] * img.shape[1]
 
             # per-channel mean and std
@@ -202,6 +186,83 @@ def compute_class_stats(h5_path: Optional[str] = None, classes: Optional[list] =
     # populate global container
     CLASS_STATS.update(stats)
     return stats
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        description="Train baseline VAE on a given MVTec class"
+    )
+
+    parser.add_argument(
+        "--class_name",
+        type=str,
+        required=True,
+        help="MVTec class to train on (e.g., metal_nut, carpet)",
+    )
+    parser.add_argument(
+        "--data_subset",
+        type=float,
+        default=1.0,
+        help="Fraction of training data to use (0.0-1.0)",
+    )
+    parser.add_argument(
+        "--val_split", type=float, default=0.1, help="Validation split ratio (0.0-0.5)"
+    )
+    parser.add_argument(
+        "--beta", type=float, default=BETA, help="Weight for KL divergence term"
+    )
+    # keep lambda_geo argument for API compatibility (ignored by baseline training)
+    parser.add_argument(
+        "--lambda_geo",
+        type=float,
+        default=LAMBDA_GEO,
+        help="Weight for geometric prior term (ignored by baseline)",
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=LEARNING_RATE,
+        help="Learning rate for the optimizer",
+    )
+    parser.add_argument(
+        "--run_id",
+        type=str,
+        default=None,
+        help="Custom run identifier (used for experiment folder naming)",
+    )
+    parser.add_argument(
+        "--resume_from",
+        type=str,
+        default=None,
+        help="Checkpoint path to resume from (optional)",
+    )
+    parser.add_argument(
+        "--epochs", type=int, default=30, help="Number of training epochs"
+    )
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    return parser
+
+
+def main():
+    folder_path = sys.argv[1] if len(sys.argv) > 1 else "."
+    save = sys.argv[2] if len(sys.argv) > 2 else False
+
+    target_size = (128, 128)
+    normalize = "0-1"
+    grayscale = False
+    antialiasing = True
+
+    if save:
+        h5_filename = "mvtec_dataset.h5"
+        create_mvtec_h5_dataset(
+            folder_path,
+            h5_filename,
+            target_size=target_size,
+            normalize=normalize,
+            grayscale=grayscale,
+            antialiasing=antialiasing,
+        )
 
 
 if __name__ == "__main__":

@@ -46,8 +46,8 @@ NUM_WORKERS = 4
 PIN_MEMORY = True
 SHUFFLE_TRAIN = True
 
-EPOCHS = 100
-LEARNING_RATE = 1e-4
+EPOCHS = 50
+LEARNING_RATE = 1e-3
 OPTIMIZER = "adam"
 BETAS = (0.9, 0.999)
 EPS = 1e-8
@@ -75,7 +75,7 @@ EARLY_STOPPING_PATIENCE = 15
 IMAGE_SIZE = 128
 CHANNELS = 3
 LATENT_DIM = 128
-BETA = 1.0 # KL weight {0.5,1.0,2.0}
+BETA = 0.05 # KL weight {0.5,1.0,2.0}
 LAMBDA_GEO = 0.1 # edge prior weight {0.01,0.1,1.0}
 
 # edge prior options
@@ -98,8 +98,8 @@ GEO_LOSS_REDUCTION = "mean"
 # Path to MVTec HDF5 dataset
 DATA_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "mvtec_dataset.h5"))
 
-EXPERIMENT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "experiments"))
-# Per-run subfolders will be created under EXPERIMENT_ROOT/<class>/<run_id>/
+EXPERIMENT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "experiments"))
+# Per-run subfolders will be created under EXPERIMENT_ROOT/<class>/<improved|baseline>/<run_id>/
 MODEL_DIR = "models"
 FIGS_DIR = "figs"
 METRICS_DIR = "metrics"
