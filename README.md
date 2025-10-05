@@ -1,8 +1,7 @@
 # CompViVAEAD: Geometric-Prior VAEs for Industrial Anomaly Detection
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-1.9%2B-orange.svg)](https://pytorch.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.8%2B-orange.svg)](https://pytorch.org/)
 
 A deep learning framework for unsupervised anomaly detection in industrial images using Variational Autoencoders with geometric edge priors. This project implements both standard VAEs and improved VAEs with geometric loss for better detection of structural defects in the MVTec AD dataset.
 
@@ -23,7 +22,7 @@ A deep learning framework for unsupervised anomaly detection in industrial image
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/CompViVAEAD.git
+git clone https://github.com/fabi-kb/CompViVAEAD.git
 cd CompViVAEAD
 
 # Install dependencies
@@ -110,10 +109,6 @@ Our experiments demonstrate that:
 1. Proper loss normalization (per-sample sum then mean) significantly improves anomaly detection performance
 2. The geometric edge prior enhances detection of structural defects in industrial parts
 3. Different hyperparameters (β, λ_geo) have significant effects on model performance
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgements
 
