@@ -223,6 +223,7 @@ test_improved.ipynb
 evaluation_capability_for_notebooks.py
 image_generator.ipynb
 temp_evaluation/
+tempLocationOfExperiments/
 
 # ignore logs and experiments, generated visual data
 experiments/
